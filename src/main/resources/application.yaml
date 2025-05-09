@@ -1,0 +1,90 @@
+server:
+  port: 8081
+  tomcat:
+    threads:
+      max: 500      # 最大工作线程数（默认200）
+      min-spare: 10  # 最小空闲线程数（默认10）
+    accept-count: 200  # 等待队列长度（默认100）
+    max-connections: 10000  # 最大连接数（默认8192）
+
+spring:
+  application:
+    name: hmdp
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/hmdp?useSSL=false&serverTimezone=UTC
+    username: root
+    password: 123456
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    template:
+      retry:
+        enabled: true            # 发送端重试
+#    queues:
+#      myQueue:
+#        name: queue_spring
+#        durable: true
+#        arguments:
+#          x-dead-letter-exchange: dlx.myDLX
+#          x-dead-letter-routing-key: rowkey_DLR
+#          x-message-ttl: 5000
+#      myDLQ:
+#        name: dlx.myDLQ
+#        durable: true
+#    exchanges:
+#      myExchange:
+#        name: exchange_spring
+#        type: direct
+#        druable: true
+#      myDLX:
+#        name: dlx.myDLX
+#        type: direct
+#        durable: true
+#    binding:
+#      mybinding:
+#        queue: queue_spring
+#        exchange: exchange_spring
+#        routingkey: rowKey_spring
+#      mybindingDLB:
+#        queue: myDLQ
+#        exchange: myDLX
+#        routingkey: rowkey_DLR
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        retry:
+          enabled: true # 开启重试机制
+          max-attempts: 3 # 最大重试次数
+          initial-interval: 1000 # 初始重试间隔（单位：毫秒）
+          multiplier: 2.0 # 重试间隔倍数（每次重试间隔 = 上次间隔 * multiplier）
+          max-interval: 10000 # 最大重试间隔（单位：毫秒）
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 10
+          min-idle: 1
+          time-between-eviction-runs: 10s
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=20s # 全局默认配置
+
+mybatis-plus:
+  type-aliases-package: com.hmdp.entity # 别名扫描包
+logging:
+  level:
+    com.hmdp: debug
+
+jwt:
+  secret: hmdp
