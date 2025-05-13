@@ -7,13 +7,14 @@ import com.hmdp.dto.Result;
 import com.hmdp.entity.ShopType;
 import com.hmdp.mapper.ShopTypeMapper;
 import com.hmdp.service.IShopTypeService;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TYPE_KEY;
+import static com.hmdp.utils.constants.RedisConstants.CACHE_SHOP_TYPE_KEY;
 
 /**
  * <p>
@@ -31,6 +32,31 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
 
     @Resource
     private ObjectMapper objectMapper;
+
+    @PostConstruct
+    public void init() {
+        List<ShopType> sort = list();
+        saveShopType(sort);
+    }
+
+    private void saveShopType(List<ShopType> sort) {
+        if (stringRedisTemplate.hasKey(CACHE_SHOP_TYPE_KEY)) {
+            return;
+        }
+        List<String> list = sort.stream()
+                .map(obj -> {
+                    String string = "";
+                    try {
+                        string = objectMapper.writeValueAsString(obj);
+                    } catch (JsonProcessingException e) {
+                        log.error("序列化首页类型时发生错误: {}", e);
+                    }
+                    return string;
+                })
+                .toList();
+
+        stringRedisTemplate.opsForList().rightPushAll(CACHE_SHOP_TYPE_KEY, list);
+    }
 
     @Override
     public Result queryForType() {
@@ -59,20 +85,7 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
             return Result.fail("商品类型查询错误");
         }
 
-        List<String> list = sort.stream()
-                .map(obj -> {
-                    String string = "";
-                    try {
-                        string = objectMapper.writeValueAsString(obj);
-                    } catch (JsonProcessingException e) {
-                        log.error("序列化首页类型时发生错误: {}", e);
-                    }
-                    return string;
-                })
-                .toList();
-
-        // 存在，缓存到 redis
-        stringRedisTemplate.opsForList().rightPushAll(CACHE_SHOP_TYPE_KEY, list);
+        saveShopType(sort);
 
         return Result.ok(sort);
     }

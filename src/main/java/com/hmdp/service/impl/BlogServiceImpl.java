@@ -2,10 +2,9 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.poi.excel.sax.ElementName;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
@@ -13,25 +12,20 @@ import com.hmdp.mapper.BlogMapper;
 import com.hmdp.mq.product.Product;
 import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserService;
-import com.hmdp.utils.RateLimitUtil;
 import com.hmdp.utils.SystemConstants;
-import com.hmdp.utils.UserHolder;
 import jakarta.annotation.Resource;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.core.RedisOperations;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.SessionCallback;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.serializer.RedisSerializer;
+import org.springframework.data.redis.core.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.time.LocalDateTime;
+import java.util.*;
 
-import static cn.hutool.poi.excel.sax.ElementName.v;
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 /**
  * <p>
@@ -43,6 +37,7 @@ import static com.hmdp.utils.RedisConstants.*;
  */
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
+
     @Resource
     private IUserService userService;
 
@@ -56,49 +51,73 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     private Product product;
 
     @Resource
-    private RateLimitUtil rateLimitUtil;
+    private RedissonClient redissonClient;
 
     @Override
     public Result queryBlogHot(Integer current) {
+        if (current == null || current <= 0) {
+            return Result.ok();
+        }
+        // 从redis获取元素
+        List<Object> values = redisTemplate.opsForHash().values(BLOG_INDEX_KEY);
+        boolean empty = values.stream()
+                .skip(Math.min(values.size(), (current - 1) * SystemConstants.MAX_PAGE_SIZE))
+                .findAny()
+                .isEmpty();
+        // 判断后面是否还有内容1 0 = 0,
+        if (empty) {
+            return Result.ok();
+        }
+        handleHotBlog(current);
+        return Result.ok(values);
+    }
 
-        Object o = redisTemplate.opsForValue().get(BLOG_INDEX_KEY);
-        List<Blog> range = null;
-
-        if (o instanceof List<?> value) {
-            if (value.get(0) instanceof Blog) {
-                range = (List<Blog>) value;
+    private void handleHotBlog(Integer current) {
+        // 判断逻辑时间是否过期
+        if (isTimeout()) {
+            RLock lock = redissonClient.getLock(BLOG_INDEX_KEY + BLOG_HOT_LOCK);
+            boolean isLock = false;
+            try {
+                // 尝试获取锁
+                isLock = lock.tryLock();
+                if (isLock) {
+                    // 再次检查
+                    if (!isTimeout()) {
+                        return;
+                    }
+                    String retryKey = RETRY_PRE_KEY + BLOG_INDEX_KEY;
+                    // 发送到队列
+                    product.send(
+                            "exchange_spring",
+                            "rowKey_blogHot",
+                            "refreshBlogHot",
+                            current,
+                            retryKey
+                    );
+                }
+            } catch (Exception e) {
+                log.error("更新热点数据时发生错误: {}" + e.getMessage());
+            } finally {
+                if (isLock && lock.isHeldByCurrentThread()) {
+                    // 释放锁
+                    lock.unlock();
+                }
             }
         }
+    }
 
-        // 存在，则直接返回
-        if (range != null) {
-            return Result.ok(range);
+    private boolean isTimeout() {
+        Object o = redisTemplate.opsForValue().get(BLOG_INDEX_TTL);
+        if (o == null) {
+            return true;
         }
-
-        // 根据用户查询
-        Page<Blog> page = query()
-                .orderByDesc("liked")
-                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
-        // 获取当前页数据
-        List<Blog> records = page.getRecords();
-        // 查询用户
-        records.forEach(blog -> {
-            this.queryBlogUser(blog);
-            this.isBlogLiked(blog);
-        });
-
-        // 从redis获取点赞数量
-        records = records.stream()
-                .peek(this::updateLikedCount).toList();
-
-        // 存入到redis
-        redisTemplate.opsForValue().set(BLOG_INDEX_KEY, records, Duration.ofSeconds(BLOG_INDEX_TTL));
-
-        return Result.ok(records);
+        // 继续验证是否已经更新到 redis
+        LocalDateTime localDateTime = (LocalDateTime) o;
+        return !LocalDateTime.now().isBefore(localDateTime);
     }
 
     // 从redis同步点赞数量
-    private void updateLikedCount(Blog blog) {
+    public void updateLikedCount(Blog blog) {
         String key = BLOG_LIKED_COUNT_KEY + blog.getId();
         try {
             // 查询点赞数量
@@ -115,7 +134,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
     }
 
-    private void queryBlogUser(Blog blog) {
+    public void queryBlogUser(Blog blog) {
         Long userId = blog.getUserId();
         User user = userService.getById(userId);
         blog.setName(user.getNickName());
@@ -125,13 +144,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     @Override
     public Result queryBlogById(Long id) {
         // 查询blog
-        Blog blog = getById(id);
+        Blog blog = (Blog) redisTemplate.opsForHash().get(BLOG_INDEX_KEY, id);
 
         if (blog == null) {
             return Result.fail("笔记不存在");
         }
-        // 查询blog用户
-        queryBlogUser(blog);
 
         // 判断是否点赞过这篇blog
         isBlogLiked(blog);
@@ -142,12 +159,21 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         return Result.ok(blog);
     }
 
-    private void isBlogLiked(Blog blog) {
-        // 获取登录用户
-        Long id = UserHolder.getUser().getId();
-        if (id == null) {
+    public void isBlogLiked(Blog blog) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
             return;
         }
+        // 获取登录用户
+        Object principal = authentication.getPrincipal();
+        if (principal == null) {
+            return;
+        }
+        if (!(principal instanceof UserDTO userDTO)) {
+            return;
+        }
+
+        Long id = userDTO.getId();
 
         // 判断当前用户是否已经点赞
         Double isMember = stringRedisTemplate.opsForZSet()
@@ -161,23 +187,19 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     @Override
     public Result likeBlog(Long id) {
 
-        if (rateLimitUtil.getRateLimit(RATE_KEY + id, RATE_COUNT, DURATION_SEC) == 0) {
-            return Result.fail("请勿频繁操作！");
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (principal == null) {
+            return Result.ok();
         }
-
-        UserDTO user = UserHolder.getUser();
-        if (user == null) {
-            return Result.fail("请先登录");
+        if (!(principal instanceof UserDTO userDTO)) {
+            return Result.ok();
         }
 
         String key = BLOG_LIKED_KEY + id;
         String countKey = BLOG_LIKED_COUNT_KEY + id;
 
         // 获取登录用户
-        Long userId = user.getId();
-        if (userId == null) {
-            return Result.fail("请先登录");
-    }
+        Long userId = userDTO.getId();
 
         try {
             // 判断当前用户是否已经点赞
@@ -209,6 +231,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
                             // 点赞数 - 1
                             operations.opsForValue().decrement(countKey);
                         }
+
                         return operations.exec() != null ? true : false;
                     } catch (Exception e) {
                         operations.discard();
@@ -223,6 +246,7 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
                 product.send(
                         "exchange_spring",
                         "rowKey_like",
+                        "likeBlog",
                         id,
                         RETRY_PRE_KEY + countKey
                 );
@@ -261,11 +285,14 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
     @Override
     public Result saveBlog(Blog blog) {
         // 获取登录用户
-        UserDTO user = UserHolder.getUser();
-        if (user == null) {
-            return Result.fail("请先登录");
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (principal == null) {
+            return Result.ok();
         }
-        Long id = user.getId();
+        if (!(principal instanceof UserDTO userDTO)) {
+            return Result.ok();
+        }
+        Long id = userDTO.getId();
         blog.setUserId(id);
 
         // 保存探店博文
@@ -284,5 +311,66 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
 
         return Result.ok(blog.getId());
+    }
+
+    @Override
+    public Result queryBlogOfFollow(Long max, Integer offset) {
+        // 获取登录用户
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (principal == null) {
+            return Result.ok();
+        }
+        if (!(principal instanceof UserDTO userDTO)) {
+            return Result.ok();
+        }
+
+        // 查询收件箱 ZrevrangeByScore key Max Min Limit offset count
+        String key = FEED_FOLLOW_NEW_BLOG_KEY + userDTO.getId();
+        // 按分数倒序查询
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(key, 0, max, offset, OFFSET_COUNT);
+
+        // 判断是否为空
+        if (typedTuples == null || typedTuples.isEmpty()) {
+            return Result.ok();
+        }
+
+        // 解析数据
+        List<Long> list = new ArrayList<>(typedTuples.size());
+        long minTime = 0L;
+        int offsetCount = 1;
+        for (ZSetOperations.TypedTuple<String> typedTuple : typedTuples) {
+            //  获取id
+            list.add(Long.valueOf(Objects.requireNonNull(typedTuple.getValue())));
+            long time = Objects.requireNonNull(typedTuple.getScore()).longValue();
+
+            // 相同，则递增
+            if (minTime == time) {
+                offsetCount++;
+            } else {
+                // 有更小的值，重置计数
+                minTime = time;
+                offsetCount = 1;
+            }
+        }
+
+        // 根据用户id查询blog
+        List<Blog> blogs = query()
+                .in("id", list)
+                .last("order by field(id, " + StrUtil.join(",", list) + ")")
+                .list();
+
+        blogs.forEach(blog -> {
+            this.queryBlogUser(blog);
+            this.isBlogLiked(blog);
+        });
+        // 封装数据
+        ScrollResult r = new ScrollResult();
+        r.setList(blogs);
+        r.setOffset(offsetCount);
+        r.setMinTime(minTime);
+
+        // 返回
+        return Result.ok(r);
     }
 }

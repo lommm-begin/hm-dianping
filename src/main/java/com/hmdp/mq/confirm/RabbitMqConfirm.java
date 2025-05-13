@@ -15,8 +15,9 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 @Component
 @Slf4j
@@ -37,27 +38,35 @@ public class RabbitMqConfirm {
             if (correlationData == null) {
                 return;
             }
-            String key = correlationData.getId();
+            String retryKey = correlationData.getId();
             // 判断是否发送到路由器
             if (ack) {
-                log.info("生产者确认消息成功-{}", key);
+                log.info("生产者确认消息成功-{}", retryKey);
                 // 确认成功，删除计数器
-                stringRedisTemplate.delete(key);
+                stringRedisTemplate.delete(retryKey);
                 return;
             }
 
-            String retryKey = key.replace(RETRY_PRE_KEY, "");
+            String key = retryKey.replace(RETRY_PRE_KEY, "");
 
             // 调用优惠券重试机制
-            if (retryKey.startsWith(VOUCHER_KEY)) {
+            if (key.startsWith(VOUCHER_KEY)) {
                 log.warn("开始重试");
-                handleVoucherRetry(correlationData, key);
+                handleVoucherRetry(correlationData, retryKey, key);
                 return;
             }
-            // 点赞数量重试机制
-            if (retryKey.startsWith(BLOG_LIKED_COUNT_KEY)) {
-                handleBlogLikedUpdateRetry(correlationData, key);
+            // 点赞博客id重试机制
+            if (key.startsWith(BLOG_LIKED_COUNT_KEY)) {
+                handleAddLikedBlogIdRetry(correlationData, retryKey);
                 return;
+            }
+            // 更新店铺信息重试机制
+            if (key.startsWith(CACHE_SHOP_KEY)) {
+                handleShopUpdateRetry(correlationData, retryKey);
+            }
+            // 更新点赞数量
+            if (key.startsWith(BLOG_LIKED_COUNT_KEY)) {
+                handleBlogLikedUpdateRetry(correlationData, retryKey, key);
             }
         });
 
@@ -70,7 +79,7 @@ public class RabbitMqConfirm {
                     returned.getRoutingKey(),
                     returned.getReplyText());
 
-            if (correlationId.startsWith(VOUCHER_KEY + RETRY_PRE_KEY)) {
+            if (correlationId.startsWith(RETRY_PRE_KEY + VOUCHER_KEY)) {
                 try {
                     // 发送到死信队列
                     rabbitTemplate.convertAndSend(
@@ -89,11 +98,41 @@ public class RabbitMqConfirm {
         });
     }
 
-    private void handleBlogLikedUpdateRetry(CorrelationData correlationData, String key) {
+    private void handleBlogLikedUpdateRetry(CorrelationData correlationData, String retryKey, String key) {
+        String blogId = key.replace(BLOG_LIKED_COUNT_KEY, "");
+        if (retry(correlationData, key)) {
+            // 重新放回list
+            stringRedisTemplate.opsForSet().add(BLOG_LIKED_USER_KEY, blogId);
+            return;
+        }
+        // 从redis获取数据
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(retryKey);
+
+
+        // 重发
+        retrySend(key, entries, blogId, correlationData);
+    }
+
+    private void handleShopUpdateRetry(CorrelationData correlationData, String retryKey) {
+    }
+
+    private void handleAddLikedBlogIdRetry(CorrelationData correlationData, String retryKey) {
 
     }
 
-    private void handleVoucherRetry(CorrelationData correlationData, String key) {
+    private void handleVoucherRetry(CorrelationData correlationData, String retryKey, String key) {
+        if (retry(correlationData, key)) return;
+
+        // 从redis获取数据
+        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(key);
+        VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(entries, new VoucherOrder(), true);
+        voucherOrder.setId(Long.parseLong(entries.get("orderId").toString()));
+
+        // 重发
+        retrySend(key, entries, voucherOrder, correlationData);
+    }
+
+    private boolean retry(CorrelationData correlationData, String key) {
         String RETRY_SCRIPT =
                 """
                         local key = KEYS[1]
@@ -127,22 +166,16 @@ public class RabbitMqConfirm {
             // 发送到死信队列
             sendToDLQ(correlationData, key);
 
-            return;
+            return true;
         }
-
-        // 从redis获取数据
-        Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(key);
-        VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(entries, new VoucherOrder(), true);
-        voucherOrder.setId(Long.parseLong(entries.get("orderId").toString()));
-
-        // 重发
-        retrySend(key, entries, voucherOrder);
+        return false;
     }
 
-    private void retrySend(String key, Map<Object, Object> entries, Object data) {
+    private void retrySend(String key, Map<Object, Object> entries, Object data, CorrelationData correlationData) {
         product.send(
                 entries.get("exchange").toString(),
                 entries.get("rowKey").toString(),
+                Objects.requireNonNull(correlationData.getReturned()).getMessage().getMessageProperties().getHeader("x-message-type"),
                 data,
                 key
         );

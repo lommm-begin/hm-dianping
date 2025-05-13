@@ -1,5 +1,7 @@
 package com.hmdp.service.impl;
 
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
@@ -7,20 +9,30 @@ import com.hmdp.mapper.ShopMapper;
 import com.hmdp.mq.product.Product;
 import com.hmdp.service.IShopService;
 import com.hmdp.utils.CacheClient;
+import com.hmdp.utils.SystemConstants;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import org.redisson.api.RBloomFilter;
 import org.redisson.api.RedissonClient;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.domain.geo.GeoReference;
+import org.springframework.data.redis.domain.geo.Metrics;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 /**
  * <p>
@@ -66,19 +78,19 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private StringRedisTemplate stringRedisTemplate;
 
     // 底层实现是 Caffeine
-//    @Cacheable(value = "shop", key = "T(com.hmdp.utils.RedisConstants).CACHE_SHOP_KEY + #id")
+//    @Cacheable(value = "shop", key = "T(com.hmdp.utils.constants.RedisConstants).CACHE_SHOP_KEY + #id")
     @Override
     public Result queryById(Long id) {
 
-        Shop shop = cacheClient.queryShopByIdFromRedis(
+        Shop shop = cacheClient.queryByIdFromRedis(
                 CACHE_SHOP_KEY,
                 id,
                 Shop.class,
-                this::getById,
+                RETRY_PRE_KEY + CACHE_SHOP_KEY + id,
                 CACHE_SHOP_TTL,
-                CACHE_SHOP_PER_MILLISECONDS,
-                CACHE_SHOP_MIN_MILLISECONDS,
-                TimeUnit.MILLISECONDS);
+                CACHE_MAX_TTL,
+                CACHE_MIN_TTL,
+                TimeUnit.SECONDS);
 
         return Result.ok(shop);
     }
@@ -108,7 +120,66 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         return Result.ok();
     }
 
-    @CacheEvict(value = "shop", key = "T(com.hmdp.utils.RedisConstants).CACHE_SHOP_KEY + #id")
+    @Override
+    public Result queryShopByType(Integer typeId, Integer current, Double x, Double y, Double distance) {
+
+        // 判断是否需要按坐标查询
+        if (x == null || y == null) {
+            // 不需要
+            // 根据类型分页查询
+            Page<Shop> page = query()
+                    .eq("type_id", typeId)
+                    .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
+            // 返回数据
+            return Result.ok(page.getRecords());
+        }
+
+        // 计算分页参数
+        int from = (current - 1) * SystemConstants.DEFAULT_PAGE_SIZE;
+        int pageSize = current * SystemConstants.DEFAULT_PAGE_SIZE; // 因为从redis获取的时候只会从0开始到指定的结尾
+
+        // 查询redis 根据距离，排序。geosearch key bylonlat byradius current withdistance
+        String key = SHOP_GEO_KEY + typeId;
+        GeoResults<RedisGeoCommands.GeoLocation<String>> geoResults = stringRedisTemplate.opsForGeo().search(
+                key,
+                GeoReference.fromCoordinate(x, y),
+                new Distance(5000, Metrics.METERS), // distance
+                RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
+                        .limit(pageSize)
+        );
+
+        // 获取真正数据
+        if (geoResults == null) {
+            return Result.ok();
+        }
+        List<GeoResult<RedisGeoCommands.GeoLocation<String>>> content = geoResults.getContent();
+
+        // 将店铺id和距离封装一起
+        List<Long> ids = new ArrayList<>(content.size());
+
+        Map<String, Distance> distanceMap = new HashMap<>(content.size());
+
+        // 判断是否还有数据
+        if (content.size() <= from) {
+            return Result.ok();
+        }
+        content.stream().skip(from).forEach(geoResult -> {
+            String shopId = geoResult.getContent().getName();
+            ids.add(Long.valueOf(shopId));
+            distanceMap.put(shopId, geoResult.getDistance());
+        });
+
+        // 从数据库根据id获取对应店铺的信息
+        String join = StrUtil.join(",", ids);
+        List<Shop> list = query().in("id", ids).last("order by field(id, " + join + ")").list();
+
+        // 给店铺的距离赋值
+        list.forEach(shop -> shop.setDistance(distanceMap.get(shop.getId().toString()).getValue()));
+
+        return Result.ok(list);
+    }
+
+    @CacheEvict(value = "shop", key = "T(com.hmdp.utils.constants.RedisConstants).CACHE_SHOP_KEY + #id")
     public void deleteShop(Long id) {
     }
 

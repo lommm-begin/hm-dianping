@@ -1,11 +1,17 @@
 package com.hmdp.mq.consume;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
+import com.hmdp.mq.product.Product;
 import com.hmdp.service.IBlogService;
 import com.hmdp.service.IFollowService;
-import com.hmdp.utils.RedisConstants;
+import com.hmdp.service.impl.BlogServiceImpl;
+import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SystemConstants;
 import com.rabbitmq.client.Channel;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
@@ -14,6 +20,7 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.handler.annotation.Header;
@@ -21,141 +28,167 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 import static org.springframework.amqp.support.AmqpHeaders.DELIVERY_TAG;
 
 @Service
 @Slf4j
 public class BlogServiceConsumer {
-    private boolean stop = false;
 
     @Resource
     private IBlogService blogService;
 
     @Resource
-    private ObjectMapper objectMapper;
+    private StringRedisTemplate stringRedisTemplate;
 
     @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private RedisTemplate<String, Object> redisTemplate;
 
     @Resource
     private IFollowService followService;
 
-    // 参数是必须返回了再开始计时下一次的定时任务
-    @Scheduled(fixedDelay = 3000)
-    public void updateLikes() {
-        try {
-            for (Long size = stringRedisTemplate.opsForSet().size(BLOG_LIKED_USER_KEY);
-                 !stop && size != null && size > 0;) {
+    @Resource
+    private BlogServiceImpl blogServiceImpl;
 
-                String blogId = stringRedisTemplate.opsForSet().pop(BLOG_LIKED_USER_KEY);
-                if (blogId == null) {
-                    log.warn("blogId is null");
-                    break;
-                }
+    @Resource
+    private Product product;
 
-                try {
-                    String key = BLOG_LIKED_COUNT_KEY + blogId;
-                    // 从redis读取当前的点赞数量
-                    String likedCount = stringRedisTemplate.opsForValue().get(key);
+    @Resource
+    private ObjectMapper objectMapper;
 
-                    if (likedCount == null) {
-                        // 跳过无效数据
-                        log.warn("无效数据，跳过处理");
-                        continue;
-                    }
-
-                    // 同步点赞数量到数据库
-                    boolean isSuccess = blogService.update()
-                            .set("liked", Integer.parseInt(likedCount))
-                            .eq("id", Long.parseLong(blogId))
-                            .update();
-
-                    if (!isSuccess) {
-                        log.error("修改数据库点赞数量失败id: {}", blogId);
-                        // 重新放回list
-                        stringRedisTemplate.opsForSet().add(BLOG_LIKED_USER_KEY, blogId);
-                    }
-                } catch (NumberFormatException e) {
-                    log.error("数据格式错误: {}", e.getMessage());
-                } catch (Exception e) {
-                    log.error("修改数据库点赞数时发生异常id: {}", blogId, e);
-                }
-            }
-        } catch (Exception e) {
-            log.error("同步数据库点赞数量发生异常，已捕获处理: {}", e.getMessage());
+    @RabbitListener(queues = "queue_likeUpdate", ackMode = "MANUAL", concurrency = "3")
+    public void likeUpdate(String blogId, Message message, Channel channel, @Header(DELIVERY_TAG) long tag) throws IOException {
+        if (message == null || message.getBody() == null) {
+            log.error("消息为空");
+            return;
         }
-    }
 
-    @PreDestroy
-    public void setStop() {
-        stop = true;
+        String key = BLOG_LIKED_COUNT_KEY + blogId;
+        // 从redis读取当前的点赞数量
+        String likedCount = stringRedisTemplate.opsForValue().get(key);
+
+        if (likedCount == null) {
+            // 跳过无效数据
+            log.warn("无效数据，跳过处理");
+            return;
+        }
+
+        // 读取当前点赞数
+        Blog one = blogServiceImpl.query()
+                .select("liked")
+                .eq("id", blogId)
+                .one();
+
+        // 同步点赞数量到数据库
+        boolean isSuccess = blogService.update()
+                .set("liked", likedCount)
+                .eq("liked", one.getLiked())
+                .eq("id", blogId)
+                .update();
+
+        if (!isSuccess) {
+            log.error("修改数据库点赞数量失败id: {}", blogId);
+            // 重新放回list
+            stringRedisTemplate.opsForSet().add(BLOG_LIKED_USER_KEY, blogId);
+        }
     }
 
     @RabbitListener(queues = "queue_like", ackMode = "MANUAL")
-    public void likeUpdateConsumer(Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
+    public void likeUpdateConsumer(long blogId, Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
 
         if (message == null || message.getBody() == null) {
             log.error("消息为空");
             return;
-        }
-        try {
-            // 解析blogId
-            long blogId = objectMapper.readValue(message.getBody(), Long.class);
 
-            // 将用户id和关注者的id存入redis
-            stringRedisTemplate.opsForSet()
-                    .add(BLOG_LIKED_USER_KEY, String.valueOf(blogId));
-
-            channel.basicAck(tag, false); // 不批量确认
-        } catch (JsonProcessingException e) {
-            log.error("处理点赞信息反序列化发送异常");
-        } catch (IOException e) {
-            log.error("处理点赞消息时运行时异常");
-            try {
-                channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
-            } catch (IOException ex) {
-                log.error(ex.getMessage());
-            }
         }
+
+        // 将用户id和关注者的id存入redis
+        stringRedisTemplate.opsForSet()
+                .add(BLOG_LIKED_USER_KEY, String.valueOf(blogId));
+        // 获取博主id
+        Blog one = blogServiceImpl.lambdaQuery()
+                .select(Blog::getUserId)
+                .eq(Blog::getId, blogId)
+                .one();
+        // 推送到博客博主的邮箱
+
     }
 
     @RabbitListener(queues = "queue_blogPush", ackMode = "MANUAL")
-    public void feedFollow(Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
+    public void feedFollow(Long id, Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
         if (message == null || message.getBody() == null) {
             log.error("消息为空");
             return;
         }
 
-        try {
-            // 获取博主id
-            long id = Long.parseLong(new String(message.getBody()));
+        // 查询笔记作者的所有粉丝 select * from tb_follow where follow_user_id = ?
+        List<Follow> followUserId = followService.lambdaQuery()
+                .eq(Follow::getFollowUserId, id)
+                .list();
 
-            // 查询笔记作者的所有粉丝 select * from tb_follow where follow_user_id = ?
-            List<Follow> followUserId = followService.query()
-                    .eq("follow_user_id", id)
-                    .list();
+        // 推送给笔记id的给所有粉丝
+        followUserId.forEach((follow) -> {
+            // 获取粉丝id
+            Long followId = follow.getId();
+            // 推送
+            String key = FEED_FOLLOW_NEW_BLOG_KEY + followId;
+            stringRedisTemplate.opsForZSet().add(key, String.valueOf(id), System.currentTimeMillis());
+        });
+    }
 
-            // 推送给笔记id的给所有粉丝
-            followUserId.forEach((follow) -> {
-                // 获取粉丝id
-                Long followId = follow.getId();
-                // 推送
-                String key = FEED_KEY + followId;
-                stringRedisTemplate.opsForZSet().add(key, String.valueOf(id), System.currentTimeMillis());
-            });
-            channel.basicAck(tag, false); // 不批量确认
-        } catch (JsonProcessingException e) {
-            log.error("处理推送信息反序列化发送异常");
-        } catch (IOException e) {
-            log.error("处理推送消息时运行时异常");
-            try {
-                channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
-            } catch (IOException ex) {
-                log.error(ex.getMessage());
+    @RabbitListener(queues = "queue_blogHot", ackMode = "MANUAL")
+    public void blogHotConsumer(Integer data, Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
+        // 继续验证是否已经更新到 redis
+        Object o = redisTemplate.opsForValue().get(BLOG_INDEX_TTL);
+        if (o != null) {
+            LocalDateTime localDateTime = (LocalDateTime) o;
+            if (LocalDateTime.now().isBefore(localDateTime)) {
+                return;
             }
         }
+
+        // 根据用户查询
+        Page<Blog> page = blogServiceImpl.query()
+                .orderByDesc("liked")
+                .page(new Page<>(data, SystemConstants.MAX_PAGE_SIZE));
+        // 获取当前页数据
+        List<Blog> blogs = page.getRecords();
+        // 查询用户
+        blogs.forEach(blog -> {
+            blogServiceImpl.queryBlogUser(blog);
+            blogServiceImpl.isBlogLiked(blog);
+        });
+
+        // 从redis获取点赞数量
+        blogs.forEach(blogServiceImpl::updateLikedCount);
+
+        Map<Long, Object> collect = blogs.stream()
+                .collect(Collectors.toMap(
+                        Blog::getId,
+                        blog -> (Object) blog
+                ));
+
+        // 存入到redis
+        redisTemplate.execute(new SessionCallback<Object>() {
+            @Override
+            public Object execute(RedisOperations operations) throws DataAccessException {
+                try {
+                    operations.multi();
+                    operations.opsForHash().putAll(BLOG_INDEX_KEY, collect);
+                    operations.opsForValue().set(
+                            BLOG_INDEX_TTL,
+                            LocalDateTime.now().plusSeconds(BLOG_INDEX_SEC_TTL));
+                    return operations.exec();
+                } catch (Exception e) {
+                    operations.discard();
+                    throw new RuntimeException(e);
+                }
+            }
+        });
     }
 }

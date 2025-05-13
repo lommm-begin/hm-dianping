@@ -1,11 +1,16 @@
 package com.hmdp.utils;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hmdp.dto.ShopRedisMessage;
+import com.hmdp.mq.product.Product;
 import jakarta.annotation.Resource;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -13,13 +18,13 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 @Slf4j
 @Component
@@ -35,19 +40,7 @@ public class CacheClient {
     private RedissonClient redissonClient;
 
     @Resource
-    private ExecutorService executorService;
-
-    public void set(String key, Object value, long time, TimeUnit timeUnit) {
-        try {
-            stringRedisTemplate.opsForValue().set(
-                    key,
-                    objectMapper.writeValueAsString(value),
-                    time,
-                    timeUnit);
-        } catch (JsonProcessingException e) {
-            log.error(e.getMessage() + "序列化失败");
-        }
-    }
+    private Product product;
 
     public void setWithLogicalExpire(String key, Object value, long time, TimeUnit timeUnit) {
         try {
@@ -58,15 +51,15 @@ public class CacheClient {
                     key,
                     objectMapper.writeValueAsString(redisData));
         } catch (JsonProcessingException e) {
-            log.error(e.getMessage() + "序列化失败");
+            log.error("序列化失败: {}", e.getMessage());
         }
     }
 
-    public <R, ID> R queryShopByIdFromRedis(
+    public <R, ID> R queryByIdFromRedis(
             String keyPre,
             ID id,
             Class<R> clazz,
-            Function<ID, R> function,
+            String retryKey,
             Long time,
             Long preTime,
             Long minTime,
@@ -76,35 +69,45 @@ public class CacheClient {
         // 从 redis 查询
         String redisData = stringRedisTemplate.opsForValue().get(key);
 
-        // 判断是否存在，需要数据提前预热
-        if (StrUtil.isBlank(redisData)) {
-            // 存在，直接返回
-            return null;
+        RedisData bean = null;
+        R r = null;
+        // 判断是否存在
+        if (StrUtil.isNotBlank(redisData)) {
+            bean = JSONUtil.toBean(redisData, RedisData.class);
+            JSONObject entries = (JSONObject) bean.getData();
+            r = JSONUtil.toBean(entries, clazz);
         }
 
-        RedisData bean = JSONUtil.toBean(redisData, RedisData.class);
-        JSONObject entries = (JSONObject) bean.getData();
-        R r = JSONUtil.toBean(entries, clazz);
-
-        // 逻辑时间过期
-        if (bean.getExpireTime().isBefore(LocalDateTime.now())) {
+        // 不存在或者逻辑时间过期
+        if (BeanUtil.isEmpty(bean) || bean.getExpireTime().isBefore(LocalDateTime.now())) {
             RLock lock = redissonClient.getLock(LOCK_SHOP_KEY + key);
-            boolean locked = false;
-
+            boolean islock = false;
             try {
-                locked = lock.tryLock(LOCK_SHOP_TTL, LOCK_SHOP_EXPIRE_TTL, TimeUnit.SECONDS);
+                islock = lock.tryLock(30, TimeUnit.SECONDS);
                 // 获取锁成功
-                if (locked) {
-                    // 双重验证是否已经更新到 redis
-                    String string = stringRedisTemplate.opsForValue().get(key);
-                    if (JSONUtil.toBean(string, RedisData.class).getExpireTime().isBefore(LocalDateTime.now())) {
-                        this.queryShopByIdFromDB(key, id, function, time, preTime, minTime, timeUnit);
-                    }
+                if (!islock) {
+                   return r;
                 }
+                // 双重验证是否已经更新到 redis
+                String string = stringRedisTemplate.opsForValue().get(key);
+                if (!(StrUtil.isBlank(string)
+                        || JSONUtil.toBean(string, RedisData.class)
+                        .getExpireTime().isBefore(LocalDateTime.now()))) {
+                    return r;
+                }
+
+                // 发送到消息队列
+                product.send(
+                        "exchange_spring",
+                        "rowKey_shopMessage",
+                        "shopMessage",
+                        new ShopRedisMessage(key, id, time + ThreadLocalRandom.current().nextLong(minTime, preTime), timeUnit),
+                        retryKey
+                );
             } catch (InterruptedException e) {
                 log.error(e.getMessage());
             } finally {
-                if (locked) {
+                if (islock && lock.isHeldByCurrentThread()) {
                     lock.unlock();
                 }
             }
@@ -112,34 +115,5 @@ public class CacheClient {
 
         // 所有都直接返回旧数据
         return r;
-    }
-
-    private <R, ID> void queryShopByIdFromDB(
-            String key,
-            ID id,
-            Function<ID, R> function,
-            Long time,
-            Long preTime,
-            Long minTime,
-            TimeUnit timeUnit) {
-
-            CompletableFuture<Void> objectCompletableFuture = CompletableFuture.runAsync(() -> {
-                // 逻辑时间过期，根据id查询数据库
-                R newR = function.apply(id);
-
-                // 不存在数据库，返回错误
-                if (newR == null) {
-                    // 触发错误回调
-                    throw new RuntimeException();
-                }
-
-                // 存在，缓存到 redis
-                this.setWithLogicalExpire(key, newR, time +
-                        ThreadLocalRandom.current().nextLong(minTime, preTime), timeUnit);
-            }, executorService);
-
-            objectCompletableFuture.exceptionally(ex->{
-                throw new RuntimeException("商铺不存在！！");
-            });
     }
 }

@@ -2,6 +2,7 @@ package com.hmdp.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.AntPathMatcher;
 
 import java.util.concurrent.*;
 
@@ -19,5 +20,10 @@ public class SpringConfig {
                 Executors.defaultThreadFactory(), // 线程工厂
                 new ThreadPoolExecutor.AbortPolicy() // 拒绝策略（这里选择AbortPolicy）
         );
+    }
+
+    @Bean
+    public AntPathMatcher antPathMatcher() {
+        return new AntPathMatcher();
     }
 }

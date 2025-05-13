@@ -21,8 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.SECKILL_STOCK_KEY;
-import static com.hmdp.utils.RedisConstants.VOUCHER_KEY;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 /**
  * <p>
@@ -34,8 +33,6 @@ import static com.hmdp.utils.RedisConstants.VOUCHER_KEY;
  */
 @Service
 public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> implements IVoucherService {
-
-    public static final String EMPTY_KEY = VOUCHER_KEY + "empty:0";
 
     @Resource
     private ISeckillVoucherService seckillVoucherService;
@@ -49,26 +46,24 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     @Override
     public Result queryVoucherOfShop(Long shopId) {
         // 在redis查询优惠券信息
-        List<String> allVoucher = getVoucherFromRedis();
-        if (allVoucher != null && allVoucher.size() == 1) {
-            if (allVoucher.get(0).startsWith(EMPTY_KEY)) {
+        List<Voucher> allVoucher = getVoucherFromRedis();
+        if (allVoucher != null && !allVoucher.isEmpty()) {
                 // 存在，则返回 redis 的数据
                 return Result.ok(allVoucher);
-            }
         }
 
         // 不存在，查询数据库
         List<Voucher> vouchers = getBaseMapper().queryVoucherOfShop(shopId);
 
-        // 查询为空
+        // 数据库查询为空
         if (vouchers.isEmpty()) {
             // 随便缓存一个空数据
             stringRedisTemplate.opsForValue().set(
-                    EMPTY_KEY,
+                    VOUCHER_SHOP_KEY + shopId,
                     "",
-                    3,
+                    1,
                     TimeUnit.MINUTES);
-            return Result.fail("优惠券不存在!");
+            return Result.ok();
         }
 
         // 同步redis
@@ -81,26 +76,31 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     private void saveToRedis(List<Voucher> vouchers) {
         vouchers.forEach(voucher -> {
             try {
-                String key = VOUCHER_KEY + voucher.getId();
+                String key = VOUCHER_SHOP_KEY + voucher.getId();
                 // 依次保存到redis
                 stringRedisTemplate.opsForValue().set(
                         key,
                         objectMapper.writeValueAsString(voucher),
-                        voucher.getEndTime().toEpochSecond(ZoneOffset.UTC)
-                                - LocalDateTime.now().toEpochSecond(ZoneOffset.UTC),
+                        30 * 24 * 60 * 60,
                         TimeUnit.SECONDS);
-                stringRedisTemplate.delete(EMPTY_KEY);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
         });
     }
 
-    private List<String> getVoucherFromRedis() {
-        Set<String> keys = stringRedisTemplate.keys(VOUCHER_KEY + "*");
+    private List<Voucher> getVoucherFromRedis() {
+        Set<String> keys = stringRedisTemplate.keys(VOUCHER_SHOP_KEY + "*");
 
-        // 无需再次反序列化
-        return stringRedisTemplate.opsForValue().multiGet(keys);
+        return stringRedisTemplate.opsForValue().multiGet(keys).stream()
+                .map(voucher -> {
+                    try {
+                        return objectMapper.readValue(voucher, Voucher.class);
+                    } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .toList();
     }
 
     @Override
@@ -116,6 +116,10 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
         seckillVoucher.setEndTime(voucher.getEndTime());
         seckillVoucherService.save(seckillVoucher);
 
+        saveSeckillVoucher(voucher);
+    }
+
+    private void saveSeckillVoucher(Voucher voucher) {
         // 保存秒杀优惠券库存到redis
         stringRedisTemplate.opsForHash()
                 .putAll(SECKILL_STOCK_KEY + voucher.getId(),
@@ -125,7 +129,7 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
                                 "endTime", voucher.getEndTime().toEpochSecond(ZoneOffset.UTC)));
 
         try {
-            String key = VOUCHER_KEY + voucher.getId();
+            String key = VOUCHER_SHOP_KEY + voucher.getId();
 
             // 保存完整信息到redis
             stringRedisTemplate.opsForValue().set(

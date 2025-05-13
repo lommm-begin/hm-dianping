@@ -91,6 +91,21 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(likesQueue).to(exchange).with("rowKey_like");
     }
 
+    // 更新点赞数量的队列
+    @Bean
+    public Queue likesUpdateQueue() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", "dlx.myDLX"); // 死信交换机
+        args.put("x-dead-letter-routing-key", "rowkey_DLR"); // 死信路由键
+        args.put("x-message-ttl", 5000); // 消息存活时间 (ms)
+        return new Queue("queue_likeUpdate", true, false, false, args); // 队列名称、是否持久化、是否排他、是否自动删除、参数
+    }
+
+    @Bean
+    public Binding bindingLikeUpdate(Queue likesUpdateQueue, DirectExchange exchange) {
+        return BindingBuilder.bind(likesUpdateQueue).to(exchange).with("rowKey_likeUpdate");
+    }
+
     // 处理博主发布新内容推送的队列
     @Bean
     public Queue blogPushQueue() {
@@ -102,7 +117,7 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public Binding bindingBlogPushs(Queue blogPushQueue, DirectExchange exchange) {
+    public Binding bindingBlogPush(Queue blogPushQueue, DirectExchange exchange) {
         return BindingBuilder.bind(blogPushQueue).to(exchange).with("rowKey_blogPush");
     }
 
@@ -122,6 +137,36 @@ public class RabbitMQConfig {
     @Bean
     public Binding bindingDelay(Queue delayQueue, CustomExchange delayedExchange) {
         return BindingBuilder.bind(delayQueue).to(delayedExchange).with("rowKey_delay").noargs();
+    }
+
+    // 店铺信息
+    @Bean
+    public Queue ShopMessageQueue() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", "dlx.myDLX"); // 死信交换机
+        args.put("x-dead-letter-routing-key", "rowkey_DLR"); // 死信路由键
+        args.put("x-message-ttl", 5000); // 消息存活时间 (ms)
+        return new Queue("queue_shopMessage", true, false, false, args); // 队列名称、是否持久化、是否排他、是否自动删除、参数
+    }
+
+    @Bean
+    public Binding ShopMessageBind(Queue ShopMessageQueue, DirectExchange exchange) {
+        return BindingBuilder.bind(ShopMessageQueue).to(exchange).with("rowKey_shopMessage");
+    }
+
+    // 首页热点blog
+    @Bean
+    public Queue BlogHotQueue() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", "dlx.myDLX"); // 死信交换机
+        args.put("x-dead-letter-routing-key", "rowkey_DLR"); // 死信路由键
+        args.put("x-message-ttl", 5000); // 消息存活时间 (ms)
+        return new Queue("queue_blogHot", true, false, false, args); // 队列名称、是否持久化、是否排他、是否自动删除、参数
+    }
+
+    @Bean
+    public Binding bindingBlogHot(Queue BlogHotQueue, DirectExchange exchange) {
+        return BindingBuilder.bind(BlogHotQueue).to(exchange).with("rowKey_blogHot");
     }
 }
 

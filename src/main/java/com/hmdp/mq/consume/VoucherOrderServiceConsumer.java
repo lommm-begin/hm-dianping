@@ -1,5 +1,6 @@
 package com.hmdp.mq.consume;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.service.IVoucherOrderService;
@@ -15,7 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 
-import static com.hmdp.utils.RedisConstants.SECKILL_LOCK_KEY;
+import static com.hmdp.utils.constants.RedisConstants.SECKILL_LOCK_KEY;
 import static org.springframework.amqp.support.AmqpHeaders.DELIVERY_TAG;
 
 @Service
@@ -29,47 +30,17 @@ public class VoucherOrderServiceConsumer {
     private ObjectMapper objectMapper;
 
     @RabbitListener(queues = "queue_spring", ackMode = "MANUAL")
-    public void handleVoucherOrder(Message message, Channel channel, @Header(DELIVERY_TAG) long tag) {
+    public void handleVoucherOrder(VoucherOrder voucherOrder, Message message, Channel channel, @Header(DELIVERY_TAG) long tag) throws IOException {
         if (message == null || message.getBody() == null) {
             log.error("消息为空");
             return;
         }
-        RLock rLock = null;
-        try {
-            VoucherOrder voucherOrder =
-                    objectMapper.readValue(new String(message.getBody()), VoucherOrder.class);
-            // 生成锁
-            rLock = redissonClient.getLock(SECKILL_LOCK_KEY + voucherOrder.getUserId());
-            boolean isLock = rLock.tryLock();
-            if (!isLock) {
-                // 获取锁失败
-                log.error("消息重新入队");
-                // 重新放回队列
-                channel.basicReject(tag, true);
-            }
-            handleAckMessage(message, channel, voucherOrder);
-        } catch (Exception e) {
-            log.error("手动确认消息时发生错误, 错误{}", e.getMessage());
-            try {
-                // 不批量拒绝确认，重新放回队列
-                channel.basicNack(message.getMessageProperties().getDeliveryTag(), false, true);
-            } catch (IOException ex) {
-                log.error("拒绝时发生错误");
-            }
-        } finally {
-            if (rLock != null && rLock.isHeldByCurrentThread()) {
-                rLock.unlock();
-            }
-        }
+
+        handleAckMessage(message, channel, voucherOrder);
     }
 
-    private void handleAckMessage(Message message, Channel channel, VoucherOrder voucherOrder) {
-        try {
-            log.info("手动确认消息: {}", voucherOrder);
-            channel.basicAck(message.getMessageProperties().getDeliveryTag(), false); // 不批量确认
-            voucherOrderService.createVoucherOrder(voucherOrder);
-        } catch (IOException e) {
-            log.error("手动确认消息发送错误");
-        }
+    private void handleAckMessage(Message message, Channel channel, VoucherOrder voucherOrder) throws IOException {
+        channel.basicAck(message.getMessageProperties().getDeliveryTag(), false); // 不批量确认
+        voucherOrderService.createVoucherOrder(voucherOrder);
     }
 }

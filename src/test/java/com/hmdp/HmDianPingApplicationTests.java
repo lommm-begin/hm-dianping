@@ -1,5 +1,7 @@
 package com.hmdp;
 
+import com.hmdp.entity.UserDetail;
+import com.hmdp.mapper.UserDetailMapper;
 import com.hmdp.mq.product.Product;
 import com.hmdp.service.impl.ShopServiceImpl;
 import com.hmdp.utils.CacheClient;
@@ -14,10 +16,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 @SpringBootTest
 class HmDianPingApplicationTests {
@@ -37,6 +38,9 @@ class HmDianPingApplicationTests {
     @Resource
     Product product;
 
+    @Resource
+    UserDetailMapper userDetailMapper;
+
     @Test
     public void contextLoads() {
 
@@ -48,12 +52,13 @@ class HmDianPingApplicationTests {
         }
     }
 
+    // 缓存店铺信息
     @Test
     public void testShopService2() {
         cacheClient.setWithLogicalExpire(
                 CACHE_SHOP_KEY + 1,
                 shopService.getById(1),
-                5000000,
+                5,
                 TimeUnit.SECONDS
         );
     }
@@ -77,7 +82,7 @@ class HmDianPingApplicationTests {
     public void testShopService4() throws IOException {
         // 保存秒杀优惠券到redis
         stringRedisTemplate.opsForHash()
-                .putAll(SECKILL_STOCK_KEY + 12,
+                .putAll(SECKILL_STOCK_KEY + 1,
                         Map.of("status", 1,
                                 "stock", 100,
                                 "beginTime", LocalDateTime.now().toEpochSecond(ZoneOffset.UTC),
@@ -118,8 +123,35 @@ class HmDianPingApplicationTests {
         product.send(
                 "exchange_spring",
                 "rowKey_like",
+                "test",
                 "111",
                 RETRY_PRE_KEY + 2
         );
+    }
+
+//    @Test
+//    public void testShopService7() throws IOException {
+//        UserDetail userDetailByUsername = userDetailMapper.getUserDetailByUsername("18029624303");
+//        List<Integer> ids = Arrays.stream(userDetailByUsername.getAuthorities().split(","))
+//                .map(Integer::parseInt)
+//                .toList();
+//        List<String> authoritiesByAuthoId = userDetailMapper.getAuthoritiesByAuthoId(ids);
+//
+//        System.out.println(userDetailByUsername);
+//        authoritiesByAuthoId.forEach(System.out::println);
+//    }
+
+    @Test
+    public void testShopService8() throws IOException {
+        System.out.println(userDetailMapper.getUserDetail("18029624303"));
+        System.out.println(userDetailMapper.getAuthoritiesByUserId(1020L));
+        System.out.println(userDetailMapper.getAuthoritiesForUser("user"));
+    }
+
+    @Test
+    public void testShopService7() throws IOException {
+        // 查询用户认证信息到UserDTO
+        UserDetail userDetail = userDetailMapper.getUserDetail("18029624303");
+        System.out.println(userDetail.getAuthorities());
     }
 }

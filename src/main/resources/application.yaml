@@ -84,7 +84,28 @@ mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
   level:
-    com.hmdp: debug
+    com:
+      hmdp: debug
 
 jwt:
   secret: hmdp
+
+security:
+  jwt:
+    skip-path:
+      - "/user/code"
+      - "/user/login"
+      - "/shop/**"
+      - "/shop-type/**"
+      - "/upload/**"
+      - "/voucher/**"
+      - "/blog/hot"
+      - "/user/register"
+      - "/blog/likes/{id}"
+    single-verify:
+      - "/blog/like/**"
+      - "/voucher/list/{shopId}"
+      - "/blog/of/me"
+      - "/**" # 暂时先这么写
+    double-verify:
+      - "/voucher-order/seckill/{id}"

@@ -19,14 +19,16 @@ public class Product {
     public void send(
             @NotNull @NotBlank String exchange,
             @NotNull @NotBlank String routingKey,
+            @NotNull @NotBlank String businessType,
             @NotNull Object data,
-            @NotNull @NotBlank String key) {
+            @NotNull @NotBlank String retryKey) {
 
-        CorrelationData correlationData = new CorrelationData(key + UUID.randomUUID().toString(true));
+        CorrelationData correlationData = new CorrelationData(retryKey);
 
         // 发送消息
         rabbitTemplate.convertAndSend(exchange, routingKey, data, message -> {
-            message.getMessageProperties().setCorrelationId(key);
+            message.getMessageProperties().setCorrelationId(retryKey);
+            message.getMessageProperties().setHeader("x-message-type", businessType);
             return message; // 设置唯一id
         }, correlationData);
     }

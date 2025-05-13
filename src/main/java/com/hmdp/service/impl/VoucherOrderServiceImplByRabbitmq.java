@@ -3,6 +3,7 @@ package com.hmdp.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.mq.product.Product;
@@ -19,6 +20,7 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +30,7 @@ import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.Map;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 /**
  * <p>
@@ -67,11 +69,14 @@ public class VoucherOrderServiceImplByRabbitmq extends ServiceImpl<VoucherOrderM
     // 使用lua脚本
     @Override
     public Result seckillVoucher(Long voucherId) {
+        // 获取登录用户
+        UserDTO userDTO = (UserDTO) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
         Long executed = stringRedisTemplate.execute(
                 SECKILL_SCRIPT,
                 Collections.emptyList(),
                 voucherId.toString(),
-                UserHolder.getUser().getId().toString(),
+                userDTO.getId().toString(),
                 String.valueOf(LocalDateTime.now().toEpochSecond(ZoneOffset.UTC))
         );
 
@@ -85,7 +90,10 @@ public class VoucherOrderServiceImplByRabbitmq extends ServiceImpl<VoucherOrderM
 
         // 生成订单ID
         long orderId = redisIdWorker.nextId(ORDER_PREFIX_KEY);
-        Long userId = UserHolder.getUser().getId();
+        // 获取登录用户
+        UserDTO user = (UserDTO)SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        Long userId = user.getId();
 
         VoucherOrder voucherOrder = new VoucherOrder();
         voucherOrder.setVoucherId(voucherId);
@@ -128,7 +136,7 @@ public class VoucherOrderServiceImplByRabbitmq extends ServiceImpl<VoucherOrderM
 
             if (isSuccess) {
                 // 放入rabbitmq
-                product.send(exchange, rowKey, voucherOrder, key);
+                product.send(exchange, rowKey, "voucherSeckill", voucherOrder, key);
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -163,7 +171,7 @@ public class VoucherOrderServiceImplByRabbitmq extends ServiceImpl<VoucherOrderM
         save(voucherOrder);
 
         // 保存到redis
-        stringRedisTemplate.opsForHash().putAll(SECKILL_STOCK_KEY + voucherOrder.getUserId(),
+        stringRedisTemplate.opsForHash().putAll(SECKILL_USER_KEY + voucherOrder.getUserId(),
                 BeanUtil.beanToMap(voucherOrder, false, true));
     }
 
