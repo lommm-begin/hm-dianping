@@ -281,14 +281,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
         int count = 0;
         // 让每一个位和1与运算，通过和最后一位比较
-        while (true) {
+        // 未签到，直接结束
+        while ((sign & 1) != 0) {
             // 判断是否已经签到
-            if ((sign & 1) == 0) {
-                // 未签到，直接结束
-                break;
-            } else{
-                count++;
-            }
+            count++;
             sign >>>= 1;
         }
 
