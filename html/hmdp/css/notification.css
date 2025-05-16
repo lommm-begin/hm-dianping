@@ -1,0 +1,45 @@
+.notification-popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 12px 20px;
+  z-index: 9999;
+  animation: slideIn 0.3s ease-out;
+}
+
+.notification-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notification-content .icon {
+  font-size: 20px;
+}
+
+.notification-content .icon.like {
+  color: #ff6b6b; /* 点赞颜色 */
+}
+
+.notification-content .icon.follow {
+  color: #4ecdc4; /* 关注颜色 */
+}
+
+.notification-content span {
+  font-size: 14px;
+  color: #333;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
