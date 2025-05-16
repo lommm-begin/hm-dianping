@@ -12,26 +12,31 @@ import java.util.function.Supplier;
 public class RoutePolicy {
     @Resource
     private JwtNonCheckPath jwtNonCheckPath;
+
     @Resource
     private AntPathMatcher antPathMatcher;
 
-    public AuthStrategy decideStrategy(HttpServletRequest request) {
+    @Resource
+    AuthStrategy authStrategy;
+
+    public String decideStrategy(HttpServletRequest request) {
+        String requestURI = request.getRequestURI();
         // 无需登录
-        if (matchPath(jwtNonCheckPath::getSkipPath, request)) {
-            return AuthStrategy.SKIP; // 提前返回
+        if (matchPath(jwtNonCheckPath::getSkipPath, requestURI)) {
+            return authStrategy.getSkip(); // 提前返回
         }
-        if (matchPath(jwtNonCheckPath::getSingleVerify, request)) {
-            return AuthStrategy.JWT_TOKEN;
+        if (matchPath(jwtNonCheckPath::getSingleVerify, requestURI)) {
+            return authStrategy.getJwtToken();
         }
-        if (matchPath(jwtNonCheckPath::getDoubleVerify, request)) {
-            return AuthStrategy.DOUBLE_VERIFY;
+        if (matchPath(jwtNonCheckPath::getDoubleVerify, requestURI)) {
+            return authStrategy.getJwtAndRedis();
         }
 
         return null;
     }
 
-    private <T extends Collection<String>> boolean matchPath(Supplier<T> function, HttpServletRequest request) {
+    private <T extends Collection<String>> boolean matchPath(Supplier<T> function, String requestURI) {
         return function.get().stream()
-                .anyMatch(path -> antPathMatcher.match(path, request.getRequestURI()));
+                .anyMatch(path -> antPathMatcher.match(path, requestURI));
     }
 }

@@ -109,3 +109,8 @@ security:
       - "/**" # 暂时先这么写
     double-verify:
       - "/voucher-order/seckill/{id}"
+rule:
+  type:
+    skip: skip
+    jwt-token: verifyJwtExistInRedis
+    jwt-and-redis: verifyJwtExistInRedis
