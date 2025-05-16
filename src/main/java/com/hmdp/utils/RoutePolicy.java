@@ -16,27 +16,20 @@ public class RoutePolicy {
     @Resource
     private AntPathMatcher antPathMatcher;
 
-    @Resource
-    AuthStrategy authStrategy;
 
     public String decideStrategy(HttpServletRequest request) {
         String requestURI = request.getRequestURI();
         // 无需登录
-        if (matchPath(jwtNonCheckPath::getSkipPath, requestURI)) {
-            return authStrategy.getSkip(); // 提前返回
-        }
-        if (matchPath(jwtNonCheckPath::getSingleVerify, requestURI)) {
-            return authStrategy.getJwtToken();
-        }
-        if (matchPath(jwtNonCheckPath::getDoubleVerify, requestURI)) {
-            return authStrategy.getJwtAndRedis();
-        }
-
-        return null;
+        return matchPath(jwtNonCheckPath::getStrategies, requestURI); // 提前返回
     }
 
-    private <T extends Collection<String>> boolean matchPath(Supplier<T> function, String requestURI) {
+    private <T extends Collection<JwtNonCheckPath.Strategy>> String matchPath(Supplier<T> function, String requestURI) {
         return function.get().stream()
-                .anyMatch(path -> antPathMatcher.match(path, requestURI));
+                .filter(strategy -> strategy.getPaths()
+                    .stream()
+                    .anyMatch(path -> antPathMatcher.match(path, requestURI)))
+                .findFirst()
+                .map(JwtNonCheckPath.Strategy::getStrategy)
+                .orElse(null);
     }
 }

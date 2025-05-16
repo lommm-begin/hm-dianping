@@ -11,7 +11,11 @@ import java.util.List;
 @Component
 @Data
 public class JwtNonCheckPath {
-    private List<String> skipPath = new ArrayList<>();
-    private List<String> singleVerify = new ArrayList<>();
-    private List<String> doubleVerify = new ArrayList<>();
+    private List<Strategy> strategies;
+
+    @Data
+    public static class Strategy {
+        private List<String> paths = new ArrayList<>();
+        private String strategy;
+    }
 }
