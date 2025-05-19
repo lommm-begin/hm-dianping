@@ -23,7 +23,8 @@ public class SpringSecurityConfig {
                 .authorizeHttpRequests(authorizeRequests -> {
                     authorizeRequests
                             .requestMatchers(
-                                    jwtNonCheckPath.getSkipPath().toArray(String[]::new)
+                                    jwtNonCheckPath.getStrategies().get(0)
+                                            .getPaths().toArray(String[]::new)
                             ).permitAll()
                             .anyRequest().authenticated();
                 })

@@ -108,7 +108,6 @@ public class RabbitMqConfirm {
         // 从redis获取数据
         Map<Object, Object> entries = stringRedisTemplate.opsForHash().entries(retryKey);
 
-
         // 重发
         retrySend(key, entries, blogId, correlationData);
     }

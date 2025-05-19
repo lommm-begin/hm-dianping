@@ -20,22 +20,21 @@
             b.enabled,
             b.accountNonExpired,
             b.credentialsNonExpired,
-            b.accountNonLocked,
-            group_concat(e.authorities)
+            b.accountNonLocked
         from tb_user a
             join tb_user_detail b on a.id = b.detail_id
             join tb_user_role c on b.detail_id = c.uid
             join tb_role_autho d on c.role_id = d.role_id
-            join tb_autho e on d.autho_id = e.autho_id
         where a.phone = #{username}
+        limit 1
     </select>
     <select id="getAuthoritiesForUser" resultType="java.lang.String">
         select
-            group_concat(c.authorities)
+            c.authorities
         from
             tb_role a
             join tb_role_autho b on a.role_id = b.role_id
             join tb_autho c on b.autho_id = c.autho_id
-        where role = #{role}
+        where a.code = #{role}
     </select>
 </mapper>

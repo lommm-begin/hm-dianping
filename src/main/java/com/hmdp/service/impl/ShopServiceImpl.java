@@ -15,6 +15,7 @@ import jakarta.annotation.Resource;
 import org.redisson.api.RBloomFilter;
 import org.redisson.api.RedissonClient;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
 import org.springframework.data.geo.GeoResults;
@@ -78,7 +79,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private StringRedisTemplate stringRedisTemplate;
 
     // 底层实现是 Caffeine
-//    @Cacheable(value = "shop", key = "T(com.hmdp.utils.constants.RedisConstants).CACHE_SHOP_KEY + #id")
+    @Cacheable(value = "shop", key = "T(com.hmdp.utils.constants.RedisConstants).CACHE_SHOP_KEY + #id")
     @Override
     public Result queryById(Long id) {
 
