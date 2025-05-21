@@ -120,8 +120,6 @@
       },
       
       queryBlogById(b) {
-        // 获取博客详情前检查登录状态
-        if (!this.checkLogin()) return;
         
         axios.get("/blog/" + b.id)
           .then(({data}) => {
