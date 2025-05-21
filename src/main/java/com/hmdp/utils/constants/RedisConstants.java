@@ -12,7 +12,11 @@ public class RedisConstants {
     // 用户token
     public static final String LOGIN_USER_KEY = "login:token:";
     // 用户token有效期
-    public static final Long LOGIN_USER_TTL = 60L * 60 * 1000;
+    public static final long JWT_TOKEN_TTL = 60 * 30;
+    public static final long JWT_TOKEN_EXPIRE = 60 * 5;
+    public static final int JWT_TOKEN_MAX = 60 * 5;
+    public static final int JWT_TOKEN_MIN = 60;
+
     public static final int LOGIN_USER_MAX_SEC = 60 * 5;
     public static final int LOGIN_USER_MIN_SEC = 60;
 

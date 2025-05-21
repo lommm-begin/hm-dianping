@@ -41,7 +41,7 @@ public class Product {
             @NotNull @NotBlank String key,
             long delayMillis) {
 
-        CorrelationData correlationData = new CorrelationData(key + UUID.randomUUID().toString(true));
+        CorrelationData correlationData = new CorrelationData(key);
 
         // 发送消息
         rabbitTemplate.convertAndSend(exchange, routingKey, data, message -> {

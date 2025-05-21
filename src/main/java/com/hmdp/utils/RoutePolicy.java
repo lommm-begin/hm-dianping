@@ -2,8 +2,10 @@ package com.hmdp.utils;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 import java.util.Collection;
 import java.util.function.Supplier;
@@ -14,7 +16,7 @@ public class RoutePolicy {
     private JwtNonCheckPath jwtNonCheckPath;
 
     @Resource
-    private AntPathMatcher antPathMatcher;
+    private PathPatternParser pathPatternParser;
 
 
     public String decideStrategy(HttpServletRequest request) {
@@ -27,7 +29,8 @@ public class RoutePolicy {
         return function.get().stream()
                 .filter(strategy -> strategy.getPaths()
                     .stream()
-                    .anyMatch(path -> antPathMatcher.match(path, requestURI)))
+                    .anyMatch(path ->
+                            pathPatternParser.parse(path).matches(PathContainer.parsePath(requestURI))))
                 .findFirst()
                 .map(JwtNonCheckPath.Strategy::getStrategy)
                 .orElse(null);

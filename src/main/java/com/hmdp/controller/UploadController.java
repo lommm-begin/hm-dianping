@@ -1,6 +1,7 @@
 package com.hmdp.controller;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.utils.SystemConstants;
@@ -28,7 +29,7 @@ public class UploadController {
             // 获取原始文件名称
             String originalFilename = image.getOriginalFilename();
             // 生成新文件名
-            String fileName = createNewFileName(originalFilename);
+            String fileName = createNewFileName(originalFilename) + RandomUtil.randomString(10);
             // 保存文件
             image.transferTo(new File(SystemConstants.IMAGE_UPLOAD_DIR, fileName)); // 自动将上传的文件内容保存到指定的目标文件
             // 返回结果

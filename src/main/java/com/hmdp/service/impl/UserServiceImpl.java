@@ -19,16 +19,20 @@ import com.hmdp.mapper.RoleUserMapper;
 import com.hmdp.utils.JwtUtil;
 import com.hmdp.utils.RegexUtils;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -156,16 +160,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     public String saveTokenToRedis(User user, List<String> authorities) throws JsonProcessingException {
         String token;
-        String jti = user.getId() + UUID.randomUUID().toString(true);
-        long ttl = (JWT_TOKEN_TTL +
-                ThreadLocalRandom.current().nextInt(LOGIN_USER_MIN_SEC, LOGIN_USER_MAX_SEC)) * 1000;
+        String jti = String.valueOf(user.getId());
+        long ttl = JWT_TOKEN_TTL +
+                ThreadLocalRandom.current().nextInt(JWT_TOKEN_MIN, JWT_TOKEN_MAX);
         // 生成jwt token
         token = jwtUtil.generateAccessToken(
                 String.valueOf(user.getId()),
                 authorities,
                 ISS,
                 jti,
-                ttl);
+                ttl * 1000);
         log.info("token: {}", token);
 
         // 将 JWT 转换为固定长度的哈希值
@@ -185,7 +189,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(
                 key,
                 ttl,
-                TimeUnit.MILLISECONDS);
+                TimeUnit.SECONDS);
         return token;
     }
 
@@ -217,8 +221,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
             // 保存token信息到redis
             String token = saveTokenToRedis(user, authorities);
+
             // 放到安全上下文
-            UsernamePasswordAuthenticationToken up = new UsernamePasswordAuthenticationToken(loginForm.getPhone(),
+            UsernamePasswordAuthenticationToken up = new UsernamePasswordAuthenticationToken(
+                    BeanUtil.copyProperties(user, UserDTO.class),
                     null,
                     authorities.stream().map(SimpleGrantedAuthority::new).toList());
             SecurityContextHolder.getContext().setAuthentication(up);
@@ -289,6 +295,25 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
 
         return Result.ok(count);
+    }
+
+    @Override
+    public Result logout(HttpServletRequest request, HttpServletResponse response) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+
+        if (authentication == null) {
+            return Result.ok();
+        }
+
+        UserDTO principal = (UserDTO) authentication.getPrincipal();
+
+        // 删除redis中的token
+        stringRedisTemplate.delete(LOGIN_USER_KEY + principal.getId());
+
+        new SecurityContextLogoutHandler().logout(request, response, authentication);
+
+        return Result.ok();
     }
 
     private static UserDTO getUserDTO() {

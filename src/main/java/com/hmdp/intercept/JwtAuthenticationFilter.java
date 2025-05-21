@@ -28,10 +28,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 验证路径
         String ruleType = routePolicy.decideStrategy(request);
 
+        if (ruleType == null) {
+            return;
+        }
+
+        // token不为空，优先验证token
+        if (request.getHeader("authorization") != null) {
+            ruleType = "verifyJwtExistInRedis";
+        }
+
+        // 根据bean名称选择不同的验证策略
         if (!rulesMap.get(ruleType).verifyRule(request, response)) {
             return;
         }
         filterChain.doFilter(request, response);
-
     }
 }

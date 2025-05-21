@@ -8,7 +8,6 @@ import com.hmdp.entity.Blog;
 import com.hmdp.service.IBlogService;
 import com.hmdp.utils.RateLimitUtil;
 import com.hmdp.utils.SystemConstants;
-import com.hmdp.utils.UserHolder;
 import jakarta.annotation.Resource;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;

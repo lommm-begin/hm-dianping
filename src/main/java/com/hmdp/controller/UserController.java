@@ -9,6 +9,8 @@ import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -62,9 +64,8 @@ public class UserController {
      * @return 无
      */
     @PostMapping("/logout")
-    public Result logout() {
-        // TODO 实现登出功能
-        return Result.fail("功能未完成");
+    public Result logout(HttpServletRequest request, HttpServletResponse response) {
+        return userService.logout(request, response);
     }
 
     @GetMapping("/me")

@@ -96,16 +96,18 @@ security:
       - paths:
         - /user/code
         - /user/login
-        - /shop/**
+        - /user/register
+        - /shop/{id}
         - /shop-type/**
         - /upload/**
         - /voucher/**
         - /blog/hot
-        - /user/register
         - /blog/likes/{id}
+        - /blog/{id}
+        - /login
         strategy: skip
       - paths:
-          - /blog/like/**
+          - /blog/like/{id}
           - /voucher/list/{shopId}
           - /blog/of/me
           - /** # 暂时先这么写
