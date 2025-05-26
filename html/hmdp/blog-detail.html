@@ -182,8 +182,10 @@
         y: 0
       },
       sensitivity: 60,
-      resistance: 0.3
+      resistance: 0.3,
+      isLoggedIn: !!sessionStorage.getItem("token") // 添加登录状态
     },
+    
     created() {
       let id = util.getUrlParam("id");
       this.queryBlogById(id);
@@ -197,6 +199,20 @@
         this.updateItemWidth()
         this.setTransform()
         this.setTransition('none')
+      },
+      // 添加检查登录的方法
+      checkLogin1() {
+        if (!this.isLoggedIn) {
+          return false;
+        }
+        return true;
+      },
+      checkLogin2() {
+        if (!this.isLoggedIn) {
+          this.$message.error('请先登录');
+          return false;
+        }
+        return true;
       },
       goBack() {
         history.back();
@@ -216,6 +232,8 @@
             this.$nextTick(this.init);
             this.queryShopById(data.shopId)
             this.queryLikeList(id);
+             // 点赞前检查登录状态
+            if (!this.checkLogin1()) return;
             this.queryLoginUser();
           })
           .catch(this.$message.error)
@@ -234,6 +252,7 @@
           .catch(this.$message.error)
       },
       addLike(){
+
         axios.put("/blog/like/" +this.blog.id)
           .then(({data}) => {
             axios.get("/blog/" + this.blog.id)
@@ -249,6 +268,9 @@
           })
       },
       isFollowed(){
+         // 点赞前检查登录状态
+        if (!this.checkLogin2()) return;
+
         axios.get("/follow/or/not/" + this.blog.userId)
           .then(({data}) => this.followed = data)
           .catch(this.$message.error)
@@ -269,6 +291,9 @@
         return m;
       },
       queryLoginUser(){
+         // 点赞前检查登录状态
+        if (!this.checkLogin()) return;
+
         // 查询用户信息
         axios.get("/user/me")
           .then(({ data }) => {
