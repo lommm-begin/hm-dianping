@@ -99,7 +99,7 @@ class HmDianPingApplicationTests {
                 "rowKey_delay",
                 CACHE_SHOP_KEY + id,
                 RETRY_PRE_KEY + CACHE_SHOP_KEY + id,
-                1000L * 15
+                1000L * 5
         );
 
         System.in.read();
@@ -127,6 +127,8 @@ class HmDianPingApplicationTests {
                 "111",
                 RETRY_PRE_KEY + 2
         );
+
+        System.in.read();
     }
 
 //    @Test

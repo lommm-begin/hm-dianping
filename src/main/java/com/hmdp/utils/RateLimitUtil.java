@@ -28,7 +28,8 @@ public class RateLimitUtil {
                 FOLLOW_RATE_LIMIT_SCRIPT,
                 List.of(key),
                 String.valueOf(limit),
-                String.valueOf(timeout)
+                String.valueOf(timeout * 1000),
+                String.valueOf(System.currentTimeMillis())
         );
     }
 }

@@ -9,7 +9,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * JWT 规定了7个官方字段，供选用。
@@ -62,7 +65,6 @@ public class JwtUtil {
                 .withClaim("jti", jti)
                 .withClaim("iss", iss)
                 .sign(Algorithm.HMAC256(secret));
-
     }
 
     /**

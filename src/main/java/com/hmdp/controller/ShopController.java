@@ -10,6 +10,7 @@ import com.hmdp.utils.SystemConstants;
 import jakarta.annotation.Resource;
 import org.redisson.api.RBloomFilter;
 import org.redisson.api.RedissonClient;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import static com.hmdp.utils.constants.RedisConstants.BLOOM_FILTER_KEY;
@@ -55,6 +56,7 @@ public class ShopController {
      * @return 商铺id
      */
     @PostMapping
+    @PreAuthorize("hasAuthority('shopOwner:save')")
     public Result saveShop(@RequestBody Shop shop) {
         // 写入数据库
         shopService.save(shop);
@@ -68,6 +70,7 @@ public class ShopController {
      * @return 无
      */
     @PutMapping
+    @PreAuthorize("hasAuthority('shopOwner:update')")
     public Result updateShop(@RequestBody Shop shop) {
         // 写入数据库
         return shopService.update(shop);

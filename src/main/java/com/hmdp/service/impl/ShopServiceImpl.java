@@ -104,7 +104,8 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return Result.fail("店铺ID不能为空");
         }
         // 第一次删除
-        stringRedisTemplate.delete(CACHE_SHOP_KEY + id);
+        String key = CACHE_SHOP_KEY + id;
+        stringRedisTemplate.delete(key);
 
         // 更新数据库
         updateById(shop);
@@ -113,7 +114,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         product.sendDelayedTask(
             "exchange_spring",
                 "rowKey_delay",
-                CACHE_SHOP_KEY + id,
+                key,
                 RETRY_PRE_KEY + CACHE_SHOP_KEY + id,
                 ThreadLocalRandom.current().nextLong(DELAY_MIN_MILLIS, DELAY_MAX_MILLIS)
         );

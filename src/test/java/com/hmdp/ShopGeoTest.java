@@ -37,8 +37,11 @@ public class ShopGeoTest {
             List<RedisGeoCommands.GeoLocation<String>> geoLocations =
                     v.stream()
                     .map(shop ->
-                            new RedisGeoCommands.GeoLocation<>(shop.getId().toString(),
-                            new Point(shop.getX(), shop.getY())))
+                            new RedisGeoCommands.GeoLocation<>(
+                                    shop.getId().toString(),
+                                    new Point(shop.getX(), shop.getY())
+                            )
+                    )
                     .toList();
             stringRedisTemplate.opsForGeo().add(key, geoLocations);
         });

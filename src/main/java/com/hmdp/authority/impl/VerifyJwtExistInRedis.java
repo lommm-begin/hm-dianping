@@ -46,9 +46,14 @@ public class VerifyJwtExistInRedis implements VerifyRule {
     }
 
     private boolean verifyRedis(HttpServletRequest request, HttpServletResponse response) throws JsonProcessingException {
-
         // 从请求头获取token
-        String token = request.getHeader("authorization");
+        String token = request.getHeader("Authorization");
+
+        if (token == null) {
+            return false;
+        }
+
+        token = token.replace("Bearer ", "");
 
         if (StrUtil.isBlank(token)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

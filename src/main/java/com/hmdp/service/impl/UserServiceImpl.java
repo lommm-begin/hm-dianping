@@ -1,7 +1,6 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.lang.UUID;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -12,10 +11,10 @@ import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 import com.hmdp.entity.UserDetail;
 import com.hmdp.entity.UserRole;
+import com.hmdp.mapper.RoleUserMapper;
 import com.hmdp.mapper.UserDetailMapper;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
-import com.hmdp.mapper.RoleUserMapper;
 import com.hmdp.utils.JwtUtil;
 import com.hmdp.utils.RegexUtils;
 import jakarta.annotation.Resource;
@@ -44,7 +43,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
-import static com.hmdp.utils.constants.AuthoritiesConstants.*;
+import static com.hmdp.utils.constants.AuthoritiesConstants.ISS;
+import static com.hmdp.utils.constants.AuthoritiesConstants.USER_INFO;
 import static com.hmdp.utils.constants.RedisConstants.*;
 
 /**
@@ -201,6 +201,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.ok();
         }
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+
         // 返回
         return Result.ok(userDTO);
     }

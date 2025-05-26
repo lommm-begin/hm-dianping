@@ -16,7 +16,7 @@ public class UserServiceImpiTest {
 
     @Test
     public void test01() {
-        userService.createUserWithPhone("18029624303");
+        userService.createUserWithPhone("18029624304");
     }
 
     @Test

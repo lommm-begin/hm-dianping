@@ -68,6 +68,11 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         if (empty) {
             return Result.ok();
         }
+
+        values.forEach(value -> {
+            this.isBlogLiked((Blog) value);
+            this.updateLikedCount((Blog) value);
+        });
         handleHotBlog(current);
         return Result.ok(values);
     }

@@ -29,11 +29,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String ruleType = routePolicy.decideStrategy(request);
 
         if (ruleType == null) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
 
         // token不为空，优先验证token
-        if (request.getHeader("authorization") != null) {
+        if (request.getHeader("Authorization") != null
+                && !"/user/login".equals(request.getRequestURI())
+                && !"/user/register".equals(request.getRequestURI())
+        ) {
             ruleType = "verifyJwtExistInRedis";
         }
 
