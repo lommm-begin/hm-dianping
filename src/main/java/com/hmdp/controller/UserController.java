@@ -7,6 +7,7 @@ import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.RateLimitUtil;
 import com.hmdp.utils.UserHolder;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
+
+import static com.hmdp.utils.constants.RedisConstants.*;
 
 
 /**
@@ -31,6 +34,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/user")
 public class UserController {
+    @Resource
+    private RateLimitUtil rateLimitUtil;
 
     @Resource
     private IUserService userService;
@@ -43,6 +48,9 @@ public class UserController {
      */
     @PostMapping("/code")
     public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
+        if (rateLimitUtil.getRateLimit(RATE_KEY + "code:" + phone, RATE_COUNT, DURATION_SEC) == 0) {
+            return Result.fail("请勿频繁操作！");
+        }
         // 发送短信验证码并保存验证码
         return userService.sendCode(phone, session);
     }
@@ -54,6 +62,9 @@ public class UserController {
      */
     @PostMapping("/register")
     public Result register(@RequestBody LoginFormDTO loginForm, HttpSession session) {
+        if (rateLimitUtil.getRateLimit(RATE_KEY + loginForm.getPhone(), RATE_COUNT, DURATION_SEC) == 0) {
+            return Result.fail("请勿频繁操作！");
+        }
         // 实现注册功能
         return userService.register(loginForm, session);
     }
@@ -65,6 +76,10 @@ public class UserController {
      */
     @PostMapping("/logout")
     public Result logout(HttpServletRequest request, HttpServletResponse response) {
+        UserDTO principal = (UserDTO) (SecurityContextHolder.getContext().getAuthentication().getPrincipal());
+        if (rateLimitUtil.getRateLimit(RATE_KEY +  principal.getId(), RATE_COUNT, DURATION_SEC) == 0) {
+            return Result.fail("请勿频繁操作！");
+        }
         return userService.logout(request, response);
     }
 
@@ -117,6 +132,16 @@ public class UserController {
 
         // 实现登录功能
         return userService.login(loginForm);
+    }
+
+    /**
+     * 重置密码
+     * @param loginForm
+     * @return
+     */
+    @PostMapping("/reset")
+    public Result resetUser(@RequestBody LoginFormDTO loginForm) {
+        return userService.resetUser(loginForm);
     }
 
     /**

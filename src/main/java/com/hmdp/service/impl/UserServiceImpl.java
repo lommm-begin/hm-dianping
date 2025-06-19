@@ -273,7 +273,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         List<Long> result = stringRedisTemplate.opsForValue().bitField(
                 key,
                 BitFieldSubCommands.create()
-                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth - 1)).valueAt(0)
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(1 - 1)).valueAt(0)
         );
 
         // 判断是否为空
@@ -313,6 +313,26 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.delete(LOGIN_USER_KEY + principal.getId());
 
         new SecurityContextLogoutHandler().logout(request, response, authentication);
+
+        return Result.ok();
+    }
+
+    @Override
+    public Result resetUser(LoginFormDTO loginForm) {
+        String code = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + loginForm.getPhone());
+
+        // 判断验证码是否不存在
+        if (code == null) {
+            return Result.fail("验证码不存在");
+        }
+
+        // 判断验证码是否一致
+        if (code != loginForm.getCode()) {
+            return Result.fail("验证码不正确");
+        }
+
+        //  保存到数据库
+        save(new User().setPassword(loginForm.getPassword()));
 
         return Result.ok();
     }

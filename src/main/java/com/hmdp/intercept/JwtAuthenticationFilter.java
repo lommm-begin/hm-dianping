@@ -8,8 +8,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.server.PathContainer;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 import java.io.IOException;
 import java.util.Map;
@@ -23,6 +25,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Resource
     private Map<String, VerifyRule> rulesMap;
 
+    @Resource
+    private PathPatternParser pathPatternParser;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         // 验证路径
@@ -33,11 +38,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // token不为空，优先验证token
-        if (request.getHeader("Authorization") != null
-                && !"/user/login".equals(request.getRequestURI())
-                && !"/user/register".equals(request.getRequestURI())
-        ) {
+        String requestURI = request.getRequestURI();
+        if ("/user/login".equals(requestURI)
+                || "/user/register".equals(requestURI)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        if (pathPatternParser.parse("/blog/{id}").matches(PathContainer.parsePath(requestURI))
+        && request.getHeader("Authorization") != null) {
             ruleType = "verifyJwtExistInRedis";
         }
 
@@ -45,6 +54,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (!rulesMap.get(ruleType).verifyRule(request, response)) {
             return;
         }
+
         filterChain.doFilter(request, response);
     }
 }

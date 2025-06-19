@@ -127,7 +127,7 @@ public class VerifyJwtExistInRedis implements VerifyRule {
         log.info("token: {}", token);
 
         // 放到响应头
-        response.setHeader("authorization", token);
+        response.setHeader("Authorization", token);
 
         // 给redis续期
         stringRedisTemplate.opsForHash().put(key, autho, objectMapper.writeValueAsString(authos));

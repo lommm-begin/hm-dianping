@@ -87,6 +87,12 @@ logging:
     com:
       hmdp: debug
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
 jwt:
   secret: hmdp
 
@@ -99,12 +105,15 @@ security:
         - /user/register
         - /shop/{id}
         - /shop-type/**
+        - /voucher/list/{shopId}
         - /upload/**
         - /voucher/**
         - /blog/hot
         - /blog/likes/{id}
         - /blog/{id}
         - /login
+        - /shop/of/type
+        - /actuator/**
         strategy: skip
       - paths:
           - /blog/like/{id}

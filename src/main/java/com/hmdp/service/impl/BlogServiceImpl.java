@@ -69,15 +69,16 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
             return Result.ok();
         }
 
+        // 更新点赞数量和设置是否点赞
         values.forEach(value -> {
             this.isBlogLiked((Blog) value);
             this.updateLikedCount((Blog) value);
         });
-        handleHotBlog(current);
+        handleBlog(current);
         return Result.ok(values);
     }
 
-    private void handleHotBlog(Integer current) {
+    private void handleBlog(Integer current) {
         // 判断逻辑时间是否过期
         if (isTimeout()) {
             RLock lock = redissonClient.getLock(BLOG_INDEX_KEY + BLOG_HOT_LOCK);
@@ -223,14 +224,14 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
 
                         // 如果未点赞，则允许点赞
                         if (isMember == null) {
-                            // 保存用户到redis的set集合
+                            // 保存用户到redis的sort set集合
                             operations.opsForZSet()
                                     .add(key, v, System.currentTimeMillis());
 
                             // 点赞数 + 1
                             operations.opsForValue().increment(countKey);
                         } else {
-                            // 把用户从redis的set集合移除
+                            // 把用户从redis的sort set集合移除
                             operations.opsForZSet()
                                     .remove(key, v);
                             // 点赞数 - 1

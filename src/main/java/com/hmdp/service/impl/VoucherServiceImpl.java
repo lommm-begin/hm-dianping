@@ -46,7 +46,7 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
     @Override
     public Result queryVoucherOfShop(Long shopId) {
         // 在redis查询优惠券信息
-        List<Voucher> allVoucher = getVoucherFromRedis();
+        List<Voucher> allVoucher = getVoucherFromRedis(shopId);
         if (allVoucher != null && !allVoucher.isEmpty()) {
                 // 存在，则返回 redis 的数据
                 return Result.ok(allVoucher);
@@ -89,13 +89,23 @@ public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> impl
         });
     }
 
-    private List<Voucher> getVoucherFromRedis() {
+    private List<Voucher> getVoucherFromRedis(Long shopId) {
         Set<String> keys = stringRedisTemplate.keys(VOUCHER_SHOP_KEY + "*");
+
+        if (keys.isEmpty()) {
+            return null;
+        }
 
         return stringRedisTemplate.opsForValue().multiGet(keys).stream()
                 .map(voucher -> {
                     try {
-                        return objectMapper.readValue(voucher, Voucher.class);
+                        Voucher v = objectMapper.readValue(voucher, Voucher.class);
+
+                        if (v.getShopId() != shopId) {
+                            return null;
+                        }
+
+                        return v;
                     } catch (JsonProcessingException e) {
                         throw new RuntimeException(e);
                     }
