@@ -16,17 +16,14 @@
         select
             b.detail_id,
             a.phone AS username,
-            a.password,
+            a.`password`,
             b.enabled,
             b.accountNonExpired,
             b.credentialsNonExpired,
             b.accountNonLocked
         from tb_user a
             join tb_user_detail b on a.id = b.detail_id
-            join tb_user_role c on b.detail_id = c.uid
-            join tb_role_autho d on c.role_id = d.role_id
-        where a.phone = #{username}
-        limit 1
+        where a.phone = '18029624303'
     </select>
     <select id="getAuthoritiesForUser" resultType="java.lang.String">
         select

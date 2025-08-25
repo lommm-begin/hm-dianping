@@ -8,7 +8,6 @@ import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RateLimitUtil;
-import com.hmdp.utils.UserHolder;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -153,8 +152,26 @@ public class UserController {
         return userService.sign();
     }
 
-    @GetMapping
-    public Result signCountForMouth() {
+    /**
+     * 本月连续签到天数
+     * @return
+     */
+    @GetMapping("/continuous-sign-days")
+    public Result continuousSignDays() {
+        return userService.signContinuousCount();
+    }
+
+    /**
+     * 本月总签到天数
+     * @return
+     */
+    @GetMapping("/sign-count")
+    public Result signCount() {
         return userService.signCount();
+    }
+
+    @PostMapping("/test/sign")
+    public Result testSign(@RequestParam("day") int day) {
+        return userService.testSign(day);
     }
 }

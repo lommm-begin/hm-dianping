@@ -5,6 +5,9 @@ import com.hmdp.utils.JwtUtil;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
+
+import static com.hmdp.utils.constants.RedisConstants.USER_SIGN_KEY;
 
 @SpringBootTest
 public class UserServiceImpiTest {
@@ -13,6 +16,9 @@ public class UserServiceImpiTest {
 
     @Resource
     JwtUtil jwtUtil;
+
+    @Resource
+    StringRedisTemplate stringRedisTemplate;
 
     @Test
     public void test01() {
@@ -27,5 +33,17 @@ public class UserServiceImpiTest {
         } else {
             System.out.println("不通过");
         }
+    }
+
+    @Test
+    public void test03() {
+        String key = USER_SIGN_KEY + "1020" + ":202506";
+        // 存入redis
+        stringRedisTemplate.opsForValue().setBit(key, 17, true);
+    }
+
+    @Test
+    public void test04() {
+
     }
 }

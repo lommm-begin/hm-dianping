@@ -1,6 +1,7 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -23,6 +24,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.BitFieldSubCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -37,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -176,7 +179,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         String key = LOGIN_USER_KEY + jti;
 
         Map<String, Object> value = BeanUtil
-                .beanToMap(BeanUtil.copyProperties(user, UserDTO.class));
+                .beanToMap(BeanUtil.copyProperties(user, UserDTO.class),
+                        new HashMap<>(),
+                        CopyOptions.create().ignoreNullValue());
         value.put("sub", user.getId());
         value.put("iss", ISS);
         value.put("autho", objectMapper.writeValueAsString(authorities));
@@ -250,6 +255,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         // 获取当天日期
         int dayOfMonth = now.getDayOfMonth();
 
+        if (Boolean.TRUE.equals(stringRedisTemplate.opsForValue().getBit(key, dayOfMonth - 1))) {
+            return Result.fail("请勿重复签到");
+        }
+
         // 存入redis
         stringRedisTemplate.opsForValue().setBit(key, dayOfMonth - 1, true);
 
@@ -257,7 +266,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
-    public Result signCount() {
+    public Result signContinuousCount() {
         UserDTO userDTO = getUserDTO();
         if (userDTO == null) return Result.fail("未登录用户");
 
@@ -270,21 +279,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         int dayOfMonth = now.getDayOfMonth();
 
         // 获取本月截止今天的所有签到次数，返回一个十进制数 bitfield key get u结束位置 开始位置
+        // 这里不包括 dayOfMonth
         List<Long> result = stringRedisTemplate.opsForValue().bitField(
                 key,
                 BitFieldSubCommands.create()
-                        .get(BitFieldSubCommands.BitFieldType.unsigned(1 - 1)).valueAt(0)
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
         );
 
         // 判断是否为空
-        if (result == null || result.isEmpty()) {
+        if (result == null || result.isEmpty() || result.get(0) == null) {
             return Result.ok(0);
         }
 
         Long sign = result.get(0);
-        if (sign == null) {
-            return Result.ok(0);
-        }
 
         int count = 0;
         // 让每一个位和1与运算，通过和最后一位比较
@@ -318,6 +325,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     }
 
     @Override
+    public Result signCount() {
+        UserDTO userDTO = getUserDTO();
+        if (userDTO == null) return Result.fail("未登录用户");
+
+        // 指定key
+        LocalDateTime now = LocalDateTime.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userDTO.getId() + keySuffix;
+
+        Long signCountOfMouth = stringRedisTemplate.execute(
+                (RedisCallback<Long>) connection ->
+                        connection.stringCommands().bitCount(key.getBytes(), 0, now.getDayOfMonth()));
+        return Result.ok(signCountOfMouth);
+    }
+
+    @Override
+    public Result testSign(int day) {
+        UserDTO userDTO = getUserDTO();
+        if (userDTO == null) return Result.fail("未登录用户");
+
+        // 指定key
+        LocalDateTime now = LocalDateTime.now();
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userDTO.getId() + keySuffix;
+
+        // 存入redis
+        stringRedisTemplate.opsForValue().setBit(key, day - 1, true);
+
+        return Result.ok();
+    }
+
+    @Override
     public Result resetUser(LoginFormDTO loginForm) {
         String code = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + loginForm.getPhone());
 
@@ -327,12 +366,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
 
         // 判断验证码是否一致
-        if (code != loginForm.getCode()) {
+        if (!code.equals(loginForm.getCode())) {
             return Result.fail("验证码不正确");
         }
 
+        User user = query().eq("phone", loginForm.getPhone()).one();
+
+        user.setPhone(loginForm.getPhone());
+        user.setPassword(passwordEncoder.encode(loginForm.getPassword()));
+
         //  保存到数据库
-        save(new User().setPassword(loginForm.getPassword()));
+        updateById(user);
 
         return Result.ok();
     }

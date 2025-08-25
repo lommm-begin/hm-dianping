@@ -12,8 +12,8 @@ public class SimpleRedisLock implements ILock{
     // 锁的名称
     private static final String KEY_PREFIX = "lock:";
     private static final String ID_PREFIX = UUID.randomUUID().toString(true) + "-"; // 去除连字符
-    private StringRedisTemplate stringRedisTemplate;
-    private String name;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final String name;
 
     public SimpleRedisLock(StringRedisTemplate stringRedisTemplate, String name) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -41,7 +41,7 @@ public class SimpleRedisLock implements ILock{
                         return redis.call('del', KEYS[1])
                     end
                     return 0
-                        """;
+                """;
         stringRedisTemplate.execute(
                 new DefaultRedisScript<>(UNLOCK_SCRIPT, Long.class),
                 List.of(KEY_PREFIX + name),

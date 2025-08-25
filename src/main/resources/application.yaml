@@ -103,6 +103,7 @@ security:
         - /user/code
         - /user/login
         - /user/register
+        - /user/reset
         - /shop/{id}
         - /shop-type/**
         - /voucher/list/{shopId}
